@@ -72,6 +72,8 @@ jobs:
           Write-Host $actual
           if ($env:VERSION -and $actual -ne "forgecad $env:VERSION") { throw "Expected forgecad $env:VERSION" }
           forgecad --help | Select-Object -First 1
+          # Windows PowerShell 5.1 turns native stderr into a terminating error under Stop.
+          $ErrorActionPreference = 'Continue'
           $output = forgecad whoami --json 2>&1 | Out-String
           $status = $LASTEXITCODE
           Write-Host $output
