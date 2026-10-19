@@ -1,0 +1,79 @@
+name: ForgeCAD CLI install test
+
+# Installs the ForgeCAD CLI the way a user does and checks that it runs.
+# It needs no secret: it only runs the public install commands.
+on:
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: ForgeCAD server to install from
+        default: https://forgecad.io
+        required: true
+      version:
+        description: Expected CLI version, for example 1.0.0
+        required: true
+  schedule:
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    env:
+      ORIGIN: ${{ inputs.origin || 'https://forgecad.io' }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Install
+        run: curl -fsSL "$ORIGIN/install.sh" | FORGECAD_INSTALL_ORIGIN="$ORIGIN" sh
+      - name: Check the installed CLI
+        shell: bash -l {0}
+        run: |
+          set -u
+          export PATH="$HOME/.forgecad/bin:$PATH"
+          actual="$(forgecad --version)"
+          echo "$actual"
+          if [ -n "$VERSION" ] && [ "$actual" != "forgecad $VERSION" ]; then echo "Expected forgecad $VERSION"; exit 1; fi
+          forgecad --help | head -1
+          set +e
+          output="$(forgecad whoami --json 2>&1)"; status=$?
+          set -e
+          echo "$output"
+          [ "$status" -ne 0 ] && echo "$output" | grep -q auth_required
+
+  windows:
+    name: windows-latest (${{ matrix.shell }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [pwsh, powershell]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    env:
+      ORIGIN: ${{ inputs.origin || 'https://forgecad.io' }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Install
+        run: |
+          $env:FORGECAD_INSTALL_ORIGIN = $env:ORIGIN
+          irm "$env:ORIGIN/install.ps1" | iex
+      - name: Check the installed CLI
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
+          $actual = forgecad --version
+          Write-Host $actual
+          if ($env:VERSION -and $actual -ne "forgecad $env:VERSION") { throw "Expected forgecad $env:VERSION" }
+          forgecad --help | Select-Object -First 1
+          $output = forgecad whoami --json 2>&1 | Out-String
+          $status = $LASTEXITCODE
+          Write-Host $output
+          if ($status -eq 0 -or $output -notmatch 'auth_required') { throw 'whoami must fail with auth_required when signed out' }
+          exit 0
